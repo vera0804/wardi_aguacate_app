@@ -1,0 +1,23 @@
+# Secretos y entorno local
+api/.env
+pwa/.env
+pwa/.env.*
+.env
+.env.local
+.env.*.local
+
+# Dependencias
+node_modules/
+
+# Volcados completos de base de datos (no versionar)
+database/wardi_aguacate.sql
+*.dump
+
+# Builds / caché
+dist/
+build/
+.vite/
+coverage/
+*.log
+.DS_Store
+Thumbs.db

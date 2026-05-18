@@ -1,0 +1,15 @@
+{
+  "name": "wardi-aguacate-app",
+  "private": true,
+  "description": "Monorepo Wardi (PWA + API). Scripts raíz pendientes de alinear con build integrado.",
+  "scripts": {
+    "install:all": "npm install --prefix api && npm install --prefix pwa",
+    "db:migrate": "node database/run-migrations.js",
+    "db:setup-role": "node database/setup-app-role.js",
+    "db:verify": "node database/verify-migrations.js",
+    "dev:api": "npm run dev --prefix api",
+    "dev:pwa": "npm run dev --prefix pwa",
+    "smoke:precheck-auth": "node scripts/precheck-smoke-auth.js",
+    "smoke:multitenant": "node scripts/smoke-multitenant.js"
+  }
+}
