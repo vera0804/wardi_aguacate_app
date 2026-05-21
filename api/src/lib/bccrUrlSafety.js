@@ -10,7 +10,7 @@ const METADATA_IPV4 = new Set(['169.254.169.254']);
 function allowedHostnamesFromEnv() {
   const raw = process.env.BCCR_ALLOWED_HOSTS;
   if (!raw || !String(raw).trim()) {
-    return new Set(['ws.sdde.bccr.fi.cr']);
+    return new Set(['apim.bccr.fi.cr', 'gee.bccr.fi.cr', 'ws.sdde.bccr.fi.cr']);
   }
   return new Set(
     String(raw)

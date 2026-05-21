@@ -8,6 +8,7 @@ import {
   updateAsset,
 } from '../../services/assetsApi.js';
 import { categoryNameKey, formatAssetCategoryName } from '../../utils/assetCategoryName.js';
+import FxRateUsdField from '../../shared/FxRateUsdField.jsx';
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -351,17 +352,13 @@ export default function AssetFormPage({ mode }) {
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
               />
             </label>
-            <label className="text-sm">
-              <span className="mb-1 block font-medium text-slate-800">Tipo de cambio (CRC por 1 USD)</span>
-              <input
-                type="number"
-                min="0"
-                step="0.0001"
-                value={form.fx_rate}
-                onChange={(e) => setForm((f) => ({ ...f, fx_rate: e.target.value }))}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
-              />
-            </label>
+            <FxRateUsdField
+              label="Tipo de cambio (CRC por 1 USD)"
+              referenceDate={form.purchase_date}
+              value={form.fx_rate}
+              onChange={(fx_rate) => setForm((f) => ({ ...f, fx_rate }))}
+              inputClassName="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+            />
             <label className="text-sm lg:col-span-2">
               <span className="mb-1 block font-medium text-slate-800">Costo CRC (opcional)</span>
               <input

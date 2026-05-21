@@ -26,7 +26,7 @@ router.get('/usd', async (req, res, next) => {
     return res.json(data);
   } catch (e) {
     const status = Number(e.status);
-    if (status === 400 || status === 500 || status === 503) {
+    if (status === 400 || status === 500 || status === 502 || status === 503) {
       return res.status(status).json({ message: e.message });
     }
     next(e);

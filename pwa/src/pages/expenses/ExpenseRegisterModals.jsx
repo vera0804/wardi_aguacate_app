@@ -4,6 +4,7 @@ import { getExpensesMeta, createExpense, createGeneralExpense } from '../../serv
 import { listFarms } from '../../services/farms.js';
 import { enqueuePendingJob } from '../../offline/expensesSyncStore.js';
 import ExpenseCategoryCombo from './ExpenseCategoryCombo.jsx';
+import FxRateUsdField from '../../shared/FxRateUsdField.jsx';
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -231,18 +232,12 @@ export function ExpenseRegisterLotModal({ open, onClose, onSaved }) {
             />
           </label>
           {form.currency === 'USD' ? (
-            <label className="block text-sm">
-              <span className="font-medium text-slate-800">Tipo de cambio (CRC por USD) *</span>
-              <input
-                required
-                type="number"
-                min="0"
-                step="0.000001"
-                value={form.fx_rate}
-                onChange={(e) => setForm((f) => ({ ...f, fx_rate: e.target.value }))}
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-              />
-            </label>
+            <FxRateUsdField
+              required
+              referenceDate={form.exp_date}
+              value={form.fx_rate}
+              onChange={(fx_rate) => setForm((f) => ({ ...f, fx_rate }))}
+            />
           ) : null}
           <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-3">
             <button type="button" onClick={onClose} className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
@@ -424,18 +419,12 @@ export function ExpenseRegisterGeneralModal({ open, onClose, onSaved }) {
             />
           </label>
           {form.currency === 'USD' ? (
-            <label className="block text-sm">
-              <span className="font-medium text-slate-800">Tipo de cambio (CRC por USD) *</span>
-              <input
-                required
-                type="number"
-                min="0"
-                step="0.000001"
-                value={form.fx_rate}
-                onChange={(e) => setForm((f) => ({ ...f, fx_rate: e.target.value }))}
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-              />
-            </label>
+            <FxRateUsdField
+              required
+              referenceDate={form.exp_date}
+              value={form.fx_rate}
+              onChange={(fx_rate) => setForm((f) => ({ ...f, fx_rate }))}
+            />
           ) : null}
           <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-3">
             <button type="button" onClick={onClose} className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">

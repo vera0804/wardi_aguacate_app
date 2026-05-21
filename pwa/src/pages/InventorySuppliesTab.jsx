@@ -7,10 +7,17 @@ import {
   updateInventoryItem,
 } from '../services/inventoryItems.js';
 import InventoryBrandCombo from './InventoryBrandCombo.jsx';
+import {
+  MEASURE_TYPE_OPTIONS,
+  measureTypeHint,
+  measureTypeLabel,
+  measureTypeToUnit,
+  unitToMeasureType,
+} from '../lib/inventoryMeasureType.js';
 
 const DEFAULT_FORM = {
   name: '',
-  unit: 'unidad',
+  measure_type: 'unidad',
   category_id: '',
   brand_id: '',
   brand_name: '',
@@ -78,8 +85,8 @@ export default function InventorySuppliesTab({ user }) {
   function validateForm() {
     if (!String(form.name || '').trim()) return 'El nombre es obligatorio.';
     if (!String(form.category_id || '').trim()) return 'La categoría es obligatoria.';
-    if (!['kg', 'litro', 'unidad'].includes(String(form.unit || '').toLowerCase())) {
-      return 'La unidad debe ser kg, litro o unidad.';
+    if (!measureTypeToUnit(form.measure_type)) {
+      return 'Selecciona un tipo de medida válido (Masa, Volumen o Unidad).';
     }
     return null;
   }
@@ -96,7 +103,7 @@ export default function InventorySuppliesTab({ user }) {
     setError('');
     const payload = {
       name: form.name.trim(),
-      unit: form.unit,
+      unit: measureTypeToUnit(form.measure_type),
       category_id: form.category_id,
       brand_id: form.brand_id || null,
       brand_name: form.brand_id ? null : form.brand_name.trim() || null,
@@ -141,7 +148,7 @@ export default function InventorySuppliesTab({ user }) {
     setShowForm(true);
     setForm({
       name: row.name || '',
-      unit: row.unit || 'unidad',
+      measure_type: unitToMeasureType(row.unit),
       category_id: row.category_id || '',
       brand_id: row.brand_id || '',
       brand_name: row.brand_name || '',
@@ -175,7 +182,7 @@ export default function InventorySuppliesTab({ user }) {
         <input
           value={filters.search}
           onChange={(e) => setFilters((p) => ({ ...p, search: e.target.value }))}
-          placeholder="Buscar por nombre, unidad, categoría o fabricante"
+          placeholder="Buscar por nombre, tipo de medida, categoría o fabricante"
           className="rounded border border-slate-300 px-2 py-2 text-sm lg:col-span-2"
         />
       </div>
@@ -215,16 +222,19 @@ export default function InventorySuppliesTab({ user }) {
             />
           </label>
           <label className="text-sm">
-            <span className="mb-1 block">Unidad *</span>
+            <span className="mb-1 block">Tipo de medida *</span>
             <select
-              value={form.unit}
-              onChange={(e) => onChange('unit', e.target.value)}
+              value={form.measure_type}
+              onChange={(e) => onChange('measure_type', e.target.value)}
               className="w-full rounded border border-slate-300 px-2 py-2"
             >
-              <option value="kg">kg</option>
-              <option value="litro">litro</option>
-              <option value="unidad">unidad</option>
+              {MEASURE_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
             </select>
+            <span className="mt-1 block text-xs text-slate-500">{measureTypeHint(form.measure_type)}</span>
           </label>
           <label className="text-sm">
             <span className="mb-1 block">Categoría *</span>
@@ -283,7 +293,7 @@ export default function InventorySuppliesTab({ user }) {
           <thead className="bg-slate-100 text-left">
             <tr>
               <th className="px-3 py-2">Nombre</th>
-              <th className="px-3 py-2">Unidad</th>
+              <th className="px-3 py-2">Tipo de medida</th>
               <th className="px-3 py-2">Categoría</th>
               <th className="px-3 py-2">Fabricante</th>
               <th className="px-3 py-2">Estado</th>
@@ -307,7 +317,7 @@ export default function InventorySuppliesTab({ user }) {
               rows.map((row) => (
                 <tr key={row.id} className="border-t border-slate-100">
                   <td className="px-3 py-2">{row.name}</td>
-                  <td className="px-3 py-2">{row.unit}</td>
+                  <td className="px-3 py-2">{measureTypeLabel(row.unit)}</td>
                   <td className="px-3 py-2">{row.category_name || '—'}</td>
                   <td className="px-3 py-2">{row.brand_name || '—'}</td>
                   <td className="px-3 py-2">{row.is_active ? 'Activo' : 'Inactivo'}</td>

@@ -92,4 +92,4 @@ Variables relevantes para `api/src/services/bccr-exchange.service.js`:
 | Variable             | Rol |
 |----------------------|-----|
 | `BCCR_API_URL`       | Solo **HTTPS**. |
-| `BCCR_ALLOWED_HOSTS` | Lista separada por comas **opcional**. Si falta: `ws.sdde.bccr.fi.cr`. |
+| `BCCR_ALLOWED_HOSTS` | Lista separada por comas **opcional**. Si falta: `apim.bccr.fi.cr` (y hosts legados SOAP). |

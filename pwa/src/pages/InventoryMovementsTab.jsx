@@ -11,6 +11,12 @@ import {
 } from '../services/inventoryMovements.js';
 import { createInventoryItem, getInventoryItemsMeta } from '../services/inventoryItems.js';
 import InventoryBrandCombo from './InventoryBrandCombo.jsx';
+import FxRateUsdField from '../shared/FxRateUsdField.jsx';
+import {
+  MEASURE_TYPE_OPTIONS,
+  measureTypeHint,
+  measureTypeToUnit,
+} from '../lib/inventoryMeasureType.js';
 
 const OUT_NOTES_MIN_LEN = 5;
 
@@ -40,7 +46,7 @@ const EMPTY_MOVEMENT = {
 
 const EMPTY_NEW_ITEM = {
   name: '',
-  unit: 'kg',
+  measure_type: 'masa',
   category_id: '',
   brand_id: '',
   brand_name: '',
@@ -547,11 +553,16 @@ export default function InventoryMovementsTab({ user, openRegisterSignal = 0 }) 
       setError('Selecciona una categoría para el insumo.');
       return;
     }
+    const unit = measureTypeToUnit(newItemForm.measure_type);
+    if (!unit) {
+      setError('Selecciona un tipo de medida válido (Masa, Volumen o Unidad).');
+      return;
+    }
     setError('');
     try {
       const created = await createInventoryItem({
         name: newItemForm.name.trim(),
-        unit: newItemForm.unit,
+        unit,
         category_id: newItemForm.category_id,
         brand_id: newItemForm.brand_id || null,
         brand_name: newItemForm.brand_id ? null : newItemForm.brand_name?.trim() || null,
@@ -851,13 +862,16 @@ export default function InventoryMovementsTab({ user, openRegisterSignal = 0 }) 
                 className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
               />
               <select
-                value={newItemForm.unit}
-                onChange={(e) => setNewItemForm((p) => ({ ...p, unit: e.target.value }))}
+                value={newItemForm.measure_type}
+                onChange={(e) => setNewItemForm((p) => ({ ...p, measure_type: e.target.value }))}
                 className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                title={measureTypeHint(newItemForm.measure_type)}
               >
-                <option value="kg">kg</option>
-                <option value="litro">litro</option>
-                <option value="unidad">unidad</option>
+                {MEASURE_TYPE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
               <select
                 value={newItemForm.category_id}
@@ -917,14 +931,13 @@ export default function InventoryMovementsTab({ user, openRegisterSignal = 0 }) 
                 <option value="USD">USD</option>
               </select>
               {form.currency === 'USD' ? (
-                <input
-                  type="number"
-                  min="0.0001"
-                  step="0.0001"
+                <FxRateUsdField
+                  compact
+                  required
+                  referenceDate={form.mov_date}
                   value={form.fx_rate}
-                  onChange={(e) => onFormChange('fx_rate', e.target.value)}
+                  onChange={(v) => onFormChange('fx_rate', v)}
                   placeholder="Tipo cambio CRC/USD"
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                 />
               ) : (
                 <div className="rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-xs text-slate-500">
@@ -1055,14 +1068,13 @@ export default function InventoryMovementsTab({ user, openRegisterSignal = 0 }) 
                         placeholder="Costo unitario USD"
                         className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                       />
-                      <input
-                        type="number"
-                        min="0.0001"
-                        step="0.0001"
+                      <FxRateUsdField
+                        compact
+                        required
+                        referenceDate={form.mov_date}
                         value={form.fx_rate}
-                        onChange={(e) => onFormChange('fx_rate', e.target.value)}
+                        onChange={(v) => onFormChange('fx_rate', v)}
                         placeholder="Tipo cambio CRC/USD"
-                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                       />
                     </>
                   ) : (

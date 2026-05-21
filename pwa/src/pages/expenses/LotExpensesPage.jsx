@@ -10,6 +10,7 @@ import {
 import { usePendingSyncIds } from '../../hooks/usePendingSyncIds.js';
 import { enqueuePendingJob, listPendingJobs, removePendingJob } from '../../offline/expensesSyncStore.js';
 import ExpenseCategoryCombo from './ExpenseCategoryCombo.jsx';
+import FxRateUsdField from '../../shared/FxRateUsdField.jsx';
 
 function useDebouncedValue(value, delayMs) {
   const [debounced, setDebounced] = useState(value);
@@ -493,18 +494,12 @@ export default function LotExpensesPage({ embedded = false, refreshKey = 0 }) {
                 />
               </label>
               {form.currency === 'USD' ? (
-                <label className="block text-sm">
-                  <span className="font-medium text-slate-800">Tipo de cambio (CRC por USD)</span>
-                  <input
-                    required
-                    type="number"
-                    min="0"
-                    step="0.000001"
-                    value={form.fx_rate}
-                    onChange={(e) => setForm((f) => ({ ...f, fx_rate: e.target.value }))}
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-                  />
-                </label>
+                <FxRateUsdField
+                  required
+                  referenceDate={form.exp_date}
+                  value={form.fx_rate}
+                  onChange={(fx_rate) => setForm((f) => ({ ...f, fx_rate }))}
+                />
               ) : null}
               <div className="flex justify-end gap-2 pt-2">
                 <button
