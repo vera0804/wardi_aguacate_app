@@ -1,6 +1,7 @@
 const config = require('../config');
 const authService = require('../services/auth.service');
 const auditService = require('../services/audit.service');
+const clientLicenseService = require('../services/client-license.service');
 
 function clientIp(req) {
   const x = req.headers['x-forwarded-for'];
@@ -150,6 +151,22 @@ async function requireAuth(req, res, next) {
   }
 
   const isSuperadminSession = String(row.role_name || '').trim().toLowerCase() === 'superadmin';
+  const licenseSource = isSuperadminSession
+    ? row.acting_client_id
+      ? { status: row.acting_client_status, license_expires_on: row.acting_license_expires_on }
+      : null
+    : { status: row.client_status, license_expires_on: row.license_expires_on };
+
+  if (licenseSource && clientLicenseService.isClientLicenseExpired(licenseSource)) {
+    try {
+      await authService.revokeSessionByTokenHash(tokenHash);
+    } catch (e) {
+      console.error('requireAuth license expired revoke', e);
+    }
+    clearSessionCookie(res);
+    return res.status(403).json({ message: 'Licencia vencida.', code: 'LICENSE_EXPIRED' });
+  }
+
   if (!isSuperadminSession && String(row.client_status || '').toLowerCase() !== 'active') {
     try {
       await authService.revokeSessionByTokenHash(tokenHash);

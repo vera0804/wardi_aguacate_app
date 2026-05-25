@@ -9,6 +9,7 @@ const ForgotPassword = lazy(() => import('./pages/ForgotPassword.jsx'));
 const ResetPassword = lazy(() => import('./pages/ResetPassword.jsx'));
 const Dashboard = lazy(() => import('./pages/Dashboard.jsx'));
 const SuperadminClientsPage = lazy(() => import('./pages/SuperadminClientsPage.jsx'));
+const SuperadminPlansPage = lazy(() => import('./pages/SuperadminPlansPage.jsx'));
 const AssetAdminRoutes = lazy(() => import('./pages/assets/AssetAdminRoutes.jsx'));
 const AssetCategoriesRoutes = lazy(() => import('./pages/settings/AssetCategoriesRoutes.jsx'));
 const ExpenseCategoriesRoutes = lazy(() => import('./pages/settings/ExpenseCategoriesRoutes.jsx'));
@@ -77,6 +78,18 @@ export default function AppRouter() {
               <OnlineOnlyRoute>
                 <Suspense fallback={<RouteFallback />}>
                   <SuperadminClientsPage />
+                </Suspense>
+              </OnlineOnlyRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/superadmin/plans"
+          element={
+            <ProtectedRoute>
+              <OnlineOnlyRoute>
+                <Suspense fallback={<RouteFallback />}>
+                  <SuperadminPlansPage />
                 </Suspense>
               </OnlineOnlyRoute>
             </ProtectedRoute>

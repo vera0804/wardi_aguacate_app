@@ -3,6 +3,7 @@ const bcrypt = require('bcrypt');
 const { pool } = require('../db');
 const config = require('../config');
 const auditService = require('./audit.service');
+const clientLicenseService = require('./client-license.service');
 const { assertPasswordPolicy } = require('../lib/passwordPolicy');
 const mailService = require('./mail.service');
 
@@ -41,6 +42,33 @@ function roleNameNorm(roleName) {
   return String(roleName || '').trim().toLowerCase();
 }
 
+function effectiveClientLicenseSource(row) {
+  const isSuperadmin = roleNameNorm(row.role_name) === 'superadmin';
+  if (isSuperadmin) {
+    if (row.acting_client_id == null) return null;
+    return {
+      status: row.acting_client_status,
+      license_expires_on: row.acting_license_expires_on,
+    };
+  }
+  return {
+    status: row.client_status,
+    license_expires_on: row.license_expires_on,
+  };
+}
+
+function licenseFieldsForRow(row) {
+  const src = effectiveClientLicenseSource(row);
+  if (!src) {
+    return {
+      licenseExpiresOn: null,
+      licenseExpiresOnDisplay: null,
+      licenseValid: true,
+    };
+  }
+  return clientLicenseService.clientLicenseRowToMeta(src);
+}
+
 function mapUserPayloadFromUserRow(row) {
   const isSuperadmin = roleNameNorm(row.role_name) === 'superadmin';
   const home = row.client_id != null ? String(row.client_id) : null;
@@ -58,6 +86,7 @@ function mapUserPayloadFromUserRow(row) {
     isSuperadmin,
     needsTenantSelection: isSuperadmin,
     requiresContractAcceptance: false,
+    ...licenseFieldsForRow(row),
   };
 }
 
@@ -81,6 +110,7 @@ function mapUserPayloadFromSessionRow(row) {
     isSuperadmin,
     needsTenantSelection: isSuperadmin && !acting,
     requiresContractAcceptance: false,
+    ...licenseFieldsForRow(row),
   };
 }
 
@@ -89,7 +119,7 @@ async function findUserWithTenantByEmail(email) {
     `SELECT u.id, u.email, u.password_hash, u.is_active, u.client_id, u.role_id,
             u.failed_attempts, u.locked_until,
             u.first_name, u.last_name_1, u.last_name_2,
-            c.name AS client_name, c.status AS client_status,
+            c.name AS client_name, c.status AS client_status, c.license_expires_on,
             r.name AS role_name
      FROM users u
      INNER JOIN roles r ON r.id = u.role_id
@@ -150,8 +180,9 @@ async function findActiveSessionByTokenHash(tokenHash) {
               u.id AS user_id, u.email, u.is_active, u.client_id, u.role_id,
               u.locked_until,
               u.first_name, u.last_name_1, u.last_name_2,
-              c.name AS client_name, c.status AS client_status,
-              ac.name AS acting_client_name,
+              c.name AS client_name, c.status AS client_status, c.license_expires_on,
+              ac.name AS acting_client_name, ac.status AS acting_client_status,
+              ac.license_expires_on AS acting_license_expires_on,
               r.name AS role_name
        FROM sessions s
        INNER JOIN users u ON u.id = s.user_id
@@ -173,8 +204,9 @@ async function findActiveSessionByTokenHash(tokenHash) {
               u.id AS user_id, u.email, u.is_active, u.client_id, u.role_id,
               u.locked_until,
               u.first_name, u.last_name_1, u.last_name_2,
-              c.name AS client_name, c.status AS client_status,
-              ac.name AS acting_client_name,
+              c.name AS client_name, c.status AS client_status, c.license_expires_on,
+              ac.name AS acting_client_name, ac.status AS acting_client_status,
+              ac.license_expires_on AS acting_license_expires_on,
               r.name AS role_name
        FROM sessions s
        INNER JOIN users u ON u.id = s.user_id
@@ -412,20 +444,34 @@ async function login({ email, password, ip, userAgent }) {
   }
 
   const isSuperadmin = roleNameNorm(row.role_name) === 'superadmin';
-  if (!isSuperadmin && String(row.client_status || '').toLowerCase() !== 'active') {
-    const lockedNow = await incrementFailedAttempts(row.id);
-    await auditService.logSecurityEvent({
-      eventType: lockedNow ? 'login_blocked' : 'login_failed',
-      userId: row.id,
-      clientId: row.client_id,
-      identifier: normalizedEmail,
-      ipAddress: ip,
-      userAgent,
-      metadata: { reason: 'client_inactive' },
-    });
-    const err = new Error('Credenciales inválidas.');
-    err.code = 'AUTH_FAILED';
-    throw err;
+  if (!isSuperadmin) {
+    if (clientLicenseService.isClientLicenseExpired(row)) {
+      await auditService.logSecurityEvent({
+        eventType: 'login_failed',
+        userId: row.id,
+        clientId: row.client_id,
+        identifier: normalizedEmail,
+        ipAddress: ip,
+        userAgent,
+        metadata: { reason: 'license_expired' },
+      });
+      throw clientLicenseService.createLicenseExpiredError();
+    }
+    if (String(row.client_status || '').toLowerCase() !== 'active') {
+      const lockedNow = await incrementFailedAttempts(row.id);
+      await auditService.logSecurityEvent({
+        eventType: lockedNow ? 'login_blocked' : 'login_failed',
+        userId: row.id,
+        clientId: row.client_id,
+        identifier: normalizedEmail,
+        ipAddress: ip,
+        userAgent,
+        metadata: { reason: 'client_inactive' },
+      });
+      const err = new Error('Credenciales inválidas.');
+      err.code = 'AUTH_FAILED';
+      throw err;
+    }
   }
 
   await clearFailedAttempts(row.id);
@@ -765,6 +811,10 @@ async function setSessionActingClient({ sessionId, superadminUserId, actingClien
          SELECT 1 FROM clients c
          WHERE c.id = $3::uuid
            AND lower(trim(coalesce(c.status, ''))) = 'active'
+           AND (
+             c.license_expires_on IS NULL
+             OR c.license_expires_on >= CURRENT_DATE
+           )
        )
      RETURNING s.id`,
     [sessionId, superadminUserId, actingClientId]

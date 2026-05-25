@@ -19,6 +19,113 @@ router.get('/plans', async (req, res, next) => {
   }
 });
 
+router.get('/plans/all', async (req, res, next) => {
+  try {
+    const rows = await superadminService.listAllPlans();
+    res.json(rows);
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/plans/:planId/impact', async (req, res, next) => {
+  try {
+    const data = await superadminService.getPlanImpact(req.params.planId);
+    res.json(data);
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ message: e.message });
+    next(e);
+  }
+});
+
+router.get('/plans/:planId', async (req, res, next) => {
+  try {
+    const row = await superadminService.getPlanById(req.params.planId);
+    if (!row) return res.status(404).json({ message: 'Plan no encontrado.' });
+    res.json(row);
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/plans', requireCsrf, async (req, res, next) => {
+  try {
+    const row = await superadminService.createPlan(req.body || {});
+    auditService.logSecurityEvent({
+      eventType: 'superadmin_plan_created',
+      userId: req.user.id,
+      clientId: null,
+      ipAddress: clientIp(req),
+      userAgent: req.headers['user-agent'] || null,
+      metadata: { planId: row?.id, planName: row?.name },
+    });
+    res.status(201).json(row);
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ message: e.message });
+    if (e.code === '23505') {
+      return res.status(409).json({ message: 'Ya existe un plan con ese nombre.' });
+    }
+    next(e);
+  }
+});
+
+router.patch('/plans/:planId', requireCsrf, async (req, res, next) => {
+  try {
+    const result = await superadminService.updatePlan(req.params.planId, req.body || {});
+    auditService.logSecurityEvent({
+      eventType: 'superadmin_plan_updated',
+      userId: req.user.id,
+      clientId: null,
+      ipAddress: clientIp(req),
+      userAgent: req.headers['user-agent'] || null,
+      metadata: {
+        planId: result.plan?.id,
+        affectedClients: result.impact?.active_client_count ?? 0,
+      },
+    });
+    res.json(result);
+  } catch (e) {
+    if (e.status) {
+      const body = { message: e.message };
+      if (e.code) body.code = e.code;
+      if (e.impact) body.impact = e.impact;
+      return res.status(e.status).json(body);
+    }
+    if (e.code === '23505') {
+      return res.status(409).json({ message: 'Ya existe un plan con ese nombre.' });
+    }
+    next(e);
+  }
+});
+
+router.post('/plans/:planId/deactivate', requireCsrf, async (req, res, next) => {
+  try {
+    const result = await superadminService.deactivatePlan(req.params.planId, {
+      acknowledgeAffectedClients: req.body?.acknowledge_affected_clients === true,
+    });
+    auditService.logSecurityEvent({
+      eventType: 'superadmin_plan_deactivated',
+      userId: req.user.id,
+      clientId: null,
+      ipAddress: clientIp(req),
+      userAgent: req.headers['user-agent'] || null,
+      metadata: {
+        planId: result.plan?.id,
+        affectedClients: result.impact?.active_client_count ?? 0,
+      },
+    });
+    res.json(result);
+  } catch (e) {
+    if (e.status) {
+      const body = { message: e.message };
+      if (e.code) body.code = e.code;
+      if (e.impact) body.impact = e.impact;
+      return res.status(e.status).json(body);
+    }
+    next(e);
+  }
+});
+
 router.get('/clients', async (req, res, next) => {
   try {
     const rows = await superadminService.listClients();
@@ -34,6 +141,9 @@ router.post('/clients', requireCsrf, async (req, res, next) => {
     const row = await superadminService.createClientWithAdmin({
       clientName: b.client_name,
       planId: b.plan_id,
+      licenseStartsOn: b.license_starts_on,
+      billingAnchorDay: b.billing_anchor_day,
+      trialDaysOverride: b.trial_days_override,
       adminEmail: b.admin_email,
       adminPasswordPlain: b.admin_password,
       adminFirstName: b.admin_first_name,
@@ -54,6 +164,35 @@ router.post('/clients', requireCsrf, async (req, res, next) => {
       },
     });
     res.status(201).json(row);
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ message: e.message });
+    next(e);
+  }
+});
+
+router.post('/clients/:clientId/license/renew', requireCsrf, async (req, res, next) => {
+  try {
+    const row = await superadminService.renewClientLicense({
+      clientId: req.params.clientId,
+      planId: req.body?.plan_id,
+      licenseStartsOn: req.body?.license_starts_on,
+      billingAnchorDay: req.body?.billing_anchor_day,
+      trialDaysOverride: req.body?.trial_days_override,
+      renewedBySuperadminUserId: req.user.id,
+    });
+    auditService.logSecurityEvent({
+      eventType: 'superadmin_license_renewed',
+      userId: req.user.id,
+      clientId: row?.id || null,
+      ipAddress: clientIp(req),
+      userAgent: req.headers['user-agent'] || null,
+      metadata: {
+        clientName: row?.name || null,
+        planId: row?.plan_id || null,
+        licenseExpiresOn: row?.license_expires_on || null,
+      },
+    });
+    res.json(row);
   } catch (e) {
     if (e.status) return res.status(e.status).json({ message: e.message });
     next(e);

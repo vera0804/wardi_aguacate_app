@@ -2,8 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.jsx';
 
-const LICENSE_MSG =
-  'Tu licencia ha expirado. Contacta al administrador para renovar el acceso.';
+const LICENSE_MSG = 'Licencia vencida';
 
 export default function Login() {
   const { login, user, ready } = useAuth();
@@ -39,6 +38,10 @@ export default function Login() {
       }
       navigate('/dashboard', { replace: true });
     } catch (err) {
+      if (err?.code === 'LICENSE_EXPIRED') {
+        setError(LICENSE_MSG);
+        return;
+      }
       setError(err?.message || 'No se pudo iniciar sesión. Intenta de nuevo.');
     } finally {
       setLoading(false);

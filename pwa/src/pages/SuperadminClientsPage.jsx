@@ -5,10 +5,14 @@ import {
   createSuperadminClient,
   fetchSuperadminClients,
   fetchSuperadminPlans,
+  renewSuperadminClientLicense,
   superadminEnterTenant,
 } from '../services/superadminApi.js';
 import PasswordPolicyHint from '../components/PasswordPolicyHint.jsx';
 import { validatePasswordPolicy } from '../utils/passwordPolicy.js';
+import { formatLicenseDateFromApi } from '../utils/licenseExpiryDisplay.js';
+import SuperadminPlanSummary from '../components/SuperadminPlanSummary.jsx';
+import SuperadminShell from '../layouts/SuperadminShell.jsx';
 
 export default function SuperadminClientsPage() {
   const { user, setUser } = useAuth();
@@ -18,15 +22,22 @@ export default function SuperadminClientsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
+  const [renewingId, setRenewingId] = useState(null);
   const [form, setForm] = useState({
     client_name: '',
     plan_id: '',
+    license_starts_on: '',
+    billing_anchor_day: '',
+    trial_days_override: '',
     admin_email: '',
     admin_password: '',
     admin_first_name: '',
     admin_last_name_1: '',
     admin_last_name_2: '',
   });
+
+  const selectedPlan = plans.find((p) => p.id === form.plan_id);
+  const billingModel = selectedPlan?.billing_model || 'perpetual';
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -58,6 +69,19 @@ export default function SuperadminClientsPage() {
     }
   }
 
+  async function handleRenew(client) {
+    setRenewingId(client.id);
+    setError('');
+    try {
+      await renewSuperadminClientLicense(client.id, {});
+      await load();
+    } catch (e) {
+      setError(e?.message || 'No se pudo renovar la licencia.');
+    } finally {
+      setRenewingId(null);
+    }
+  }
+
   async function handleCreate(e) {
     e.preventDefault();
     const policyErr = validatePasswordPolicy(form.admin_password);
@@ -68,7 +92,7 @@ export default function SuperadminClientsPage() {
     setCreating(true);
     setError('');
     try {
-      await createSuperadminClient({
+      const payload = {
         client_name: form.client_name.trim(),
         plan_id: form.plan_id,
         admin_email: form.admin_email.trim(),
@@ -76,7 +100,17 @@ export default function SuperadminClientsPage() {
         admin_first_name: form.admin_first_name.trim(),
         admin_last_name_1: form.admin_last_name_1.trim(),
         admin_last_name_2: form.admin_last_name_2.trim() || undefined,
-      });
+      };
+      if (form.license_starts_on.trim()) {
+        payload.license_starts_on = form.license_starts_on.trim();
+      }
+      if (billingModel === 'monthly_anchor' && form.billing_anchor_day) {
+        payload.billing_anchor_day = Number(form.billing_anchor_day);
+      }
+      if (billingModel === 'trial_days' && form.trial_days_override) {
+        payload.trial_days_override = Number(form.trial_days_override);
+      }
+      await createSuperadminClient(payload);
       setForm((f) => ({
         ...f,
         client_name: '',
@@ -95,30 +129,15 @@ export default function SuperadminClientsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 p-6 text-slate-900">
-      <div className="mx-auto max-w-4xl space-y-8">
-        <header>
-          <h1 className="text-xl font-semibold text-lime-900">Plataforma — organizaciones</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            Cree clientes con plan y administrador inicial, o entre a una organización para usar el sistema como
-            ella.
-          </p>
-          {user && !user.needsTenantSelection ? (
-            <button
-              type="button"
-              className="mt-4 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
-              onClick={() => navigate('/dashboard', { replace: true })}
-            >
-              Ir al panel principal
-            </button>
-          ) : null}
-        </header>
+    <SuperadminShell
+      title="organizaciones"
+      subtitle="Cree clientes con plan y administrador inicial, o entre a una organización para usar el sistema como ella."
+    >
+      {error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">{error}</div>
+      ) : null}
 
-        {error ? (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">{error}</div>
-        ) : null}
-
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Nueva organización</h2>
           <form className="mt-4 grid gap-3 sm:grid-cols-2" onSubmit={handleCreate}>
             <label className="sm:col-span-2 block text-sm">
@@ -130,21 +149,62 @@ export default function SuperadminClientsPage() {
                 onChange={(ev) => setForm((f) => ({ ...f, client_name: ev.target.value }))}
               />
             </label>
+            <div className="sm:col-span-2">
+              <label className="block text-sm">
+                <span className="text-slate-600">Plan</span>
+                <select
+                  required
+                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                  value={form.plan_id}
+                  onChange={(ev) => setForm((f) => ({ ...f, plan_id: ev.target.value }))}
+                >
+                  {plans.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <SuperadminPlanSummary plan={selectedPlan} />
+            </div>
             <label className="block text-sm">
-              <span className="text-slate-600">Plan</span>
-              <select
-                required
+              <span className="text-slate-600">Inicio de licencia (opcional)</span>
+              <input
+                type="date"
                 className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
-                value={form.plan_id}
-                onChange={(ev) => setForm((f) => ({ ...f, plan_id: ev.target.value }))}
-              >
-                {plans.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
+                value={form.license_starts_on}
+                onChange={(ev) => setForm((f) => ({ ...f, license_starts_on: ev.target.value }))}
+              />
             </label>
+            {billingModel === 'monthly_anchor' ? (
+              <label className="block text-sm">
+                <span className="text-slate-600">Día de pago mensual (1–28)</span>
+                <input
+                  required
+                  type="number"
+                  min={1}
+                  max={28}
+                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                  value={form.billing_anchor_day}
+                  onChange={(ev) => setForm((f) => ({ ...f, billing_anchor_day: ev.target.value }))}
+                />
+              </label>
+            ) : null}
+            {billingModel === 'trial_days' ? (
+              <label className="block text-sm">
+                <span className="text-slate-600">
+                  Días de demo {selectedPlan?.trial_days ? `(plan: ${selectedPlan.trial_days})` : ''}
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  placeholder={selectedPlan?.trial_days ? String(selectedPlan.trial_days) : ''}
+                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                  value={form.trial_days_override}
+                  onChange={(ev) => setForm((f) => ({ ...f, trial_days_override: ev.target.value }))}
+                />
+              </label>
+            ) : null}
             <label className="block text-sm">
               <span className="text-slate-600">Correo del administrador</span>
               <input
@@ -220,21 +280,33 @@ export default function SuperadminClientsPage() {
                     <div className="font-medium text-slate-800">{c.name}</div>
                     <div className="text-xs text-slate-500">
                       Plan: {c.plan_name || '—'} · Estado: {c.status || '—'}
+                      {c.license_expires_on || c.license_expires_on_display
+                        ? ` · Vence: ${c.license_expires_on_display || formatLicenseDateFromApi(c.license_expires_on) || '—'}`
+                        : ' · Sin vencimiento'}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    className="rounded-lg border border-lime-700 px-3 py-1.5 text-sm font-medium text-lime-800 hover:bg-lime-50"
-                    onClick={() => handleEnter(c.id)}
-                  >
-                    Entrar como esta organización
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={renewingId === c.id}
+                      className="rounded-lg border border-amber-600 px-3 py-1.5 text-sm font-medium text-amber-900 hover:bg-amber-50 disabled:opacity-60"
+                      onClick={() => handleRenew(c)}
+                    >
+                      {renewingId === c.id ? 'Renovando…' : 'Renovar licencia'}
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-lg border border-lime-700 px-3 py-1.5 text-sm font-medium text-lime-800 hover:bg-lime-50"
+                      onClick={() => handleEnter(c.id)}
+                    >
+                      Entrar como esta organización
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
           )}
         </section>
-      </div>
-    </div>
+    </SuperadminShell>
   );
 }

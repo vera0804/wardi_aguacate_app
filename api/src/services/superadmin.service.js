@@ -2,6 +2,9 @@ const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const { pool } = require('../db');
 const { assertPasswordPolicy } = require('../lib/passwordPolicy');
+const { billingModelLabel, toIsoDateFromDb, formatLicenseExpiryDisplay } = require('../lib/licenseDates');
+const clientLicenseService = require('./client-license.service');
+const superadminPlansService = require('./superadmin-plans.service');
 
 const BCRYPT_ROUNDS = 12;
 
@@ -48,22 +51,42 @@ async function assertGlobalActiveEmailFree({ db, email, excludeUserId = null }) 
 
 async function listPlans() {
   const res = await pool.query(
-    `SELECT id, name, max_farms, max_lots_per_farm, max_users_admin, max_users_operario, price, created_at
+    `SELECT id, name, max_farms, max_lots_per_farm, max_users_admin, max_users_operario,
+            price, billing_model, trial_days, description, created_at
      FROM plans
+     WHERE COALESCE(is_active, true) = true
      ORDER BY name ASC`
   );
-  return res.rows;
+  return res.rows.map((row) => ({
+    ...row,
+    billing_model_label: billingModelLabel(row.billing_model),
+  }));
+}
+
+function mapClientRowForApi(row) {
+  if (!row) return row;
+  const license_starts_on = toIsoDateFromDb(row.license_starts_on);
+  const license_expires_on = toIsoDateFromDb(row.license_expires_on);
+  return {
+    ...row,
+    license_starts_on,
+    license_expires_on,
+    license_expires_on_display: license_expires_on
+      ? formatLicenseExpiryDisplay(row.license_expires_on)
+      : null,
+  };
 }
 
 async function listClients() {
   const res = await pool.query(
     `SELECT c.id, c.name, c.status, c.plan_id, c.created_at,
+            c.license_starts_on, c.license_expires_on, c.billing_anchor_day,
             p.name AS plan_name
      FROM clients c
      LEFT JOIN plans p ON p.id = c.plan_id
      ORDER BY c.name ASC`
   );
-  return res.rows;
+  return res.rows.map(mapClientRowForApi);
 }
 
 async function getRoleIdByName(db, roleNameNorm) {
@@ -77,6 +100,9 @@ async function getRoleIdByName(db, roleNameNorm) {
 async function createClientWithAdmin({
   clientName,
   planId,
+  licenseStartsOn,
+  billingAnchorDay,
+  trialDaysOverride,
   adminEmail,
   adminPasswordPlain,
   adminFirstName,
@@ -105,19 +131,32 @@ async function createClientWithAdmin({
   const db = await pool.connect();
   try {
     await db.query('BEGIN');
-    const planRow = await db.query(`SELECT id FROM plans WHERE id = $1::uuid LIMIT 1`, [plan]);
-    if (!planRow.rows[0]) {
-      const err = new Error('El plan indicado no existe.');
-      err.status = 400;
-      throw err;
-    }
+    await superadminPlansService.assertPlanActiveForNewClient(plan, db);
+    const licenseCols = await clientLicenseService.buildLicenseFieldsFromPlan({
+      planId: plan,
+      licenseStartsOn,
+      billingAnchorDay,
+      trialDaysOverride,
+      db,
+    });
+
     await assertGlobalActiveEmailFree({ db, email, excludeUserId: null });
 
     const insClient = await db.query(
-      `INSERT INTO clients (name, plan_id, status)
-       VALUES ($1, $2::uuid, 'active')
-       RETURNING id, name, plan_id, status, created_at`,
-      [name, plan]
+      `INSERT INTO clients (
+         name, plan_id, status,
+         license_starts_on, license_expires_on, billing_anchor_day
+       )
+       VALUES ($1, $2::uuid, 'active', $3::date, $4::date, $5)
+       RETURNING id, name, plan_id, status, license_starts_on, license_expires_on,
+                 billing_anchor_day, created_at`,
+      [
+        name,
+        plan,
+        licenseCols.licenseStartsOn,
+        licenseCols.licenseExpiresOn,
+        licenseCols.billingAnchorDay,
+      ]
     );
     const client = insClient.rows[0];
     const adminRoleId = await getRoleIdByName(db, 'admin');
@@ -140,13 +179,15 @@ async function createClientWithAdmin({
     await db.query('COMMIT');
 
     const list = await pool.query(
-      `SELECT c.id, c.name, c.status, c.plan_id, c.created_at, p.name AS plan_name
+      `SELECT c.id, c.name, c.status, c.plan_id, c.created_at,
+              c.license_starts_on, c.license_expires_on, c.billing_anchor_day,
+              p.name AS plan_name
        FROM clients c
        LEFT JOIN plans p ON p.id = c.plan_id
        WHERE c.id = $1`,
       [client.id]
     );
-    return list.rows[0];
+    return mapClientRowForApi(list.rows[0]);
   } catch (e) {
     await db.query('ROLLBACK');
     if (e.code === '23505') {
@@ -160,8 +201,93 @@ async function createClientWithAdmin({
   }
 }
 
+/**
+ * Renueva licencia: recalcula fechas, status active, opcional cambio de plan.
+ */
+async function renewClientLicense({
+  clientId,
+  planId,
+  licenseStartsOn,
+  billingAnchorDay,
+  trialDaysOverride,
+  renewedBySuperadminUserId,
+}) {
+  const cid = String(clientId || '').trim();
+  if (!cid) {
+    const err = new Error('clientId es obligatorio.');
+    err.status = 400;
+    throw err;
+  }
+
+  const db = await pool.connect();
+  try {
+    await db.query('BEGIN');
+    const cur = await db.query(
+      `SELECT id, plan_id, name FROM clients WHERE id = $1::uuid FOR UPDATE`,
+      [cid]
+    );
+    const client = cur.rows[0];
+    if (!client) {
+      const err = new Error('Organización no encontrada.');
+      err.status = 404;
+      throw err;
+    }
+
+    const effectivePlanId = String(planId || client.plan_id || '').trim();
+    if (!effectivePlanId) {
+      const err = new Error('La organización no tiene plan asignado.');
+      err.status = 400;
+      throw err;
+    }
+
+    const licenseCols = await clientLicenseService.buildLicenseFieldsFromPlan({
+      planId: effectivePlanId,
+      licenseStartsOn,
+      billingAnchorDay,
+      trialDaysOverride,
+      db,
+    });
+
+    const upd = await db.query(
+      `UPDATE clients
+       SET plan_id = $2::uuid,
+           status = 'active',
+           license_starts_on = $3::date,
+           license_expires_on = $4::date,
+           billing_anchor_day = $5,
+           updated_at = NOW()
+       WHERE id = $1::uuid
+       RETURNING id, name, status, plan_id, license_starts_on, license_expires_on,
+                 billing_anchor_day, created_at`,
+      [
+        cid,
+        effectivePlanId,
+        licenseCols.licenseStartsOn,
+        licenseCols.licenseExpiresOn,
+        licenseCols.billingAnchorDay,
+      ]
+    );
+    await db.query('COMMIT');
+
+    const row = upd.rows[0];
+    const planRes = await pool.query(`SELECT name FROM plans WHERE id = $1`, [row.plan_id]);
+    return mapClientRowForApi({
+      ...row,
+      plan_name: planRes.rows[0]?.name || null,
+      renewedBySuperadminUserId,
+    });
+  } catch (e) {
+    await db.query('ROLLBACK');
+    throw e;
+  } finally {
+    db.release();
+  }
+}
+
 module.exports = {
   listPlans,
   listClients,
   createClientWithAdmin,
+  renewClientLicense,
+  ...superadminPlansService,
 };

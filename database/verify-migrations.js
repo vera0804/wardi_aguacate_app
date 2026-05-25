@@ -82,6 +82,37 @@ async function main() {
     );
   }
 
+  const licenseCols = await c.query(
+    `SELECT table_name, column_name
+     FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND (
+         (table_name = 'plans' AND column_name = 'billing_model')
+         OR (table_name = 'clients' AND column_name = 'license_expires_on')
+       )
+     ORDER BY table_name, column_name`
+  );
+  console.log('\n=== Licencias (columnas) ===');
+  if (licenseCols.rows.length < 2) {
+    console.log('  FALTAN columnas. Ejecuta: npm run db:migrate (desde api/)');
+    licenseCols.rows.forEach((r) => console.log(`  OK: ${r.table_name}.${r.column_name}`));
+  } else {
+    licenseCols.rows.forEach((r) => console.log(`  OK: ${r.table_name}.${r.column_name}`));
+  }
+
+  const demoPlan = await c.query(
+    `SELECT name, billing_model, trial_days
+     FROM public.plans
+     WHERE lower(trim(name)) LIKE '%demo%'
+     LIMIT 1`
+  );
+  if (demoPlan.rows[0]) {
+    const p = demoPlan.rows[0];
+    console.log(
+      `\n  Plan Demo: billing_model=${p.billing_model}, trial_days=${p.trial_days ?? 'NULL'}`
+    );
+  }
+
   await c.end();
 }
 

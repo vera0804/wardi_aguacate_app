@@ -8,6 +8,8 @@ import {
 } from './dashboardMenuData.js';
 import DashboardMenuIcon from './DashboardMenuIcon.jsx';
 import { getUserDisplayName } from '../utils/userDisplayName.js';
+import { isTenantAdmin } from './dashboardMenuData.js';
+import { licenseExpiryDisplayForUser } from '../utils/licenseExpiryDisplay.js';
 import OfflineStatusBar from '../components/OfflineStatusBar.jsx';
 
 /**
@@ -26,6 +28,7 @@ export default function DashboardShell({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const displayName = getUserDisplayName(user);
+  const licenseExpiryLabel = licenseExpiryDisplayForUser(user);
 
   function handleMenuClick(item) {
     onMenuItemClick(item.label);
@@ -139,6 +142,15 @@ export default function DashboardShell({
                 <>
                   {' '}
                   · <span className="font-semibold">{user.clientName}</span>
+                </>
+              ) : null}
+              {isTenantAdmin(user) && licenseExpiryLabel ? (
+                <>
+                  <br />
+                  <span className="text-slate-600">
+                    Vencimiento de la licencia:{' '}
+                    <span className="font-semibold text-slate-800">{licenseExpiryLabel}</span>
+                  </span>
                 </>
               ) : null}
             </div>

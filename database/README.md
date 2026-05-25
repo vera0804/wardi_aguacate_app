@@ -17,6 +17,14 @@ O con npm desde la raíz:
 npm run db:migrate
 ```
 
+## Licencias por organización
+
+- Migración principal: `20260521170000_client_license_plans.sql` (columnas + Plan Demo `trial_days`).
+- Si aplicaste una versión corta de esa migración: corre también `20260521181000_client_license_plans_reapply.sql` con `npm run db:migrate`.
+- Para **deshacer** la migración 170000: `database/scripts/rollback_client_license_plans.sql` (manual), borra la fila en `schema_migrations` y vuelve a migrar.
+- Planes inactivables: `20260522120000_plans_is_active.sql` (`plans.is_active`).
+- Guía: `database/docs/LICENSE.md` · verificación: `node database/verify-migrations.js`.
+
 ## Historial antes del runner
 
 Si ya aplicaste a mano `20260515150000_users_id_document_per_client.sql`, inserta el registro **una vez** antes de usar el runner, o deja que el archivo sea idempotentemente seguro (`IF NOT EXISTS` / `DROP IF EXISTS`). Si el SQL falla al repetirse, marca la fila:

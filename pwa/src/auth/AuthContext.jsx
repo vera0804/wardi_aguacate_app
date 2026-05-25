@@ -28,9 +28,15 @@ export function AuthProvider({ children }) {
         if (!cancelled) {
           setUser(profile);
         }
-      } catch {
+      } catch (err) {
         if (!cancelled) {
           setUser(null);
+        }
+        if (err?.code === 'LICENSE_EXPIRED' && typeof window !== 'undefined') {
+          const path = window.location.pathname;
+          if (path !== '/login') {
+            window.location.replace('/login');
+          }
         }
       } finally {
         if (!cancelled) {

@@ -67,4 +67,8 @@ module.exports = {
    * Desactivar solo para depuración: TENANT_RLS_REQUEST_SCOPE=0
    */
   tenantRlsRequestScope: process.env.TENANT_RLS_REQUEST_SCOPE !== '0',
+
+  licenseTimezone: process.env.LICENSE_TIMEZONE || 'America/Costa_Rica',
+  licenseCronSchedule: process.env.LICENSE_CRON_SCHEDULE || '59 23 * * *',
+  licenseCronEnabled: process.env.LICENSE_CRON_ENABLED !== '0',
 };
