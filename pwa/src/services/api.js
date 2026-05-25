@@ -22,11 +22,14 @@ export function isNetworkFailure(err) {
   return msg.includes('failed to fetch') || msg.includes('networkerror');
 }
 
+/** Mismo origen en producción (rutas /api/...). En dev opcional: http://localhost:3000 */
+const API_BASE = import.meta.env.VITE_API_URL ?? '';
+
 /**
  * Petición JSON con cookies (sesión) y cabecera CSRF si el backend la expone en cookie.
  */
 export async function apiRequest(path, options = {}) {
-  const url = `${import.meta.env.VITE_API_URL ?? ''}${path}`;
+  const url = `${API_BASE}${path}`;
   const headers = {
     Accept: 'application/json',
     ...options.headers,
@@ -72,7 +75,7 @@ export async function apiRequest(path, options = {}) {
 
   // Si falta CSRF en una mutación, la solicitud GET /api/auth/csrf asegura la cookie.
   if (!csrf && needsCsrf) {
-    await fetch(`${import.meta.env.VITE_API_URL ?? ''}/api/auth/csrf`, {
+    await fetch(`${API_BASE}/api/auth/csrf`, {
       method: 'GET',
       credentials: 'include',
       headers: { Accept: 'application/json' },

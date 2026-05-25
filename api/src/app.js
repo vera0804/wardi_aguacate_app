@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -104,6 +106,18 @@ app.use('/api/payroll-slips', payrollSlipsRoutes);
 app.use('/api/tenant-users', tenantUsersRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/exchange-rate', exchangeRateRoutes);
+
+app.use('/api', (req, res) => {
+  res.status(404).json({ message: 'No encontrado.' });
+});
+
+const publicDir = path.join(__dirname, '..', 'public');
+if (fs.existsSync(publicDir)) {
+  app.use(express.static(publicDir));
+  app.get(/^(?!\/api).*/, (_req, res) => {
+    res.sendFile(path.join(publicDir, 'index.html'));
+  });
+}
 
 app.use((err, _req, res, next) => {
   if (res.headersSent) {

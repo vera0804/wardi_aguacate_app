@@ -15,6 +15,7 @@ database/wardi_aguacate.sql
 
 # Builds / caché
 dist/
+api/public/
 build/
 .vite/
 coverage/
