@@ -161,6 +161,31 @@ async function listCalendarActivities({
     clauses.push(`ca.status = $${values.length}`);
   }
 
+  /**
+   * Un `calendar_activity` con `status='completed'` normalmente se sincroniza desde `labor_entries`.
+   * Si una labor se inactiva (`labor_entries.is_active=false`), no debe mostrarse en el cronograma.
+   * Para evitar depender de columnas adicionales en `calendar_activities`, filtramos completadas
+   * según exista al menos una labor activa que las sustente (misma fecha + tipo + finca/lote por scope).
+   */
+  clauses.push(
+    `(ca.status <> 'completed' OR EXISTS (
+      SELECT 1
+      FROM labor_entries le
+      LEFT JOIN lots l
+        ON l.id = le.lot_id
+       AND l.client_id = le.client_id
+      WHERE le.client_id = ca.client_id
+        AND le.is_active = true
+        AND le.labor_type_id = ca.labor_type_id
+        AND le.work_date = (ca.activity_date AT TIME ZONE 'UTC')::date
+        AND (
+          (ca.lot_id IS NULL AND le.cost_scope = 'farm' AND le.farm_id = ca.farm_id AND le.lot_id IS NULL)
+          OR
+          (ca.lot_id IS NOT NULL AND le.cost_scope = 'lot' AND le.lot_id = ca.lot_id AND l.farm_id = ca.farm_id)
+        )
+    ))`
+  );
+
   const sql = `${BASE_SELECT}
      WHERE ${clauses.join(' AND ')}
      ORDER BY (ca.activity_date AT TIME ZONE 'UTC')::date ASC,
