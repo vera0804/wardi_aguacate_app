@@ -652,39 +652,35 @@ export default function LaborEntriesPage({ user }) {
                 </select>
               </label>
 
-              <label className="text-sm">
-                <span className="mb-1 block font-medium">Cantidad *</span>
-                <input
-                  type="number"
-                  step="0.001"
-                  min="0.001"
-                  value={form.qty}
-                  onChange={(e) => onChange('qty', e.target.value)}
-                  disabled={saving || form.unit === 'jornal' || (form.is_bulk && !editingId)}
-                  className="w-full rounded border border-slate-300 px-3 py-2"
-                />
-              </label>
+              {form.is_bulk && !editingId ? null : (
+                <label className="text-sm">
+                  <span className="mb-1 block font-medium">Cantidad *</span>
+                  <input
+                    type="number"
+                    step="0.001"
+                    min="0.001"
+                    value={form.qty}
+                    onChange={(e) => onChange('qty', e.target.value)}
+                    disabled={saving || form.unit === 'jornal'}
+                    className="w-full rounded border border-slate-300 px-3 py-2"
+                  />
+                </label>
+              )}
 
-              <label className="text-sm">
-                <span className="mb-1 block font-medium">
-                  Tarifa aplicada{isFixedWorker ? '' : ' *'}
-                </span>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={isFixedWorker ? '0' : form.rate_applied}
-                  onChange={(e) => onChange('rate_applied', e.target.value)}
-                  disabled={saving || isFixedWorker}
-                  className="w-full rounded border border-slate-300 px-3 py-2 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-600"
-                />
-                {isFixedWorker ? (
-                  <p className="mt-1 text-xs leading-relaxed text-slate-600">
-                    Trabajador <strong>fijo</strong>: el costo es salario mensual; aquí no se indica tarifa. Más adelante
-                    se asignará a cada lote según los reportes de dónde trabajó.
-                  </p>
-                ) : null}
-              </label>
+              {!isFixedWorker ? (
+                <label className="text-sm">
+                  <span className="mb-1 block font-medium">Tarifa aplicada *</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={form.rate_applied}
+                    onChange={(e) => onChange('rate_applied', e.target.value)}
+                    disabled={saving}
+                    className="w-full rounded border border-slate-300 px-3 py-2"
+                  />
+                </label>
+              ) : null}
 
               {!editingId ? (
                 <label className="inline-flex items-center gap-2 text-sm">
