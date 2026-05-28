@@ -194,9 +194,9 @@ export default function PayrollCalculationPage({ user }) {
         <h3 className="text-base font-semibold text-lime-800">Calcular planilla</h3>
         <p className="mt-1 max-w-3xl text-sm text-slate-600">
           Trabajador <strong>fijo</strong>: mes calendario completo, salario mensual bruto; si declara CCSS se aplican
-          los porcentajes de la pestaña de nómina (patrono suma al costo; trabajador queda como registro). Prorrateo
-          del costo patrono (bruto + CCSS patrono) según labores por lote en el mes. <strong>Ocasional</strong>: suma
-          de pagos del periodo y misma lógica de aportes y prorrateo.
+          los porcentajes de la pestaña de nómina (CCSS patrono, otros patrono e INS, etc.; trabajador CCSS como
+          registro). Prorrateo del <strong>costo patrono</strong> (bruto + CCSS patrono + otros patrono) según labores
+          por lote. <strong>Ocasional</strong>: suma de pagos del periodo y misma lógica.
         </p>
 
         <form onSubmit={handleCalculate} className="mt-4 grid max-w-2xl grid-cols-1 gap-3 md:grid-cols-2">
@@ -368,6 +368,7 @@ export default function PayrollCalculationPage({ user }) {
                 <th className="px-3 py-2">Periodo</th>
                 <th className="px-3 py-2">Bruto</th>
                 <th className="px-3 py-2">CCSS patrono</th>
+                <th className="px-3 py-2">Otros patrono</th>
                 <th className="px-3 py-2">CCSS trab.</th>
                 <th className="px-3 py-2">Aguinaldo prov.</th>
                 <th className="px-3 py-2">Costo patrono</th>
@@ -378,13 +379,13 @@ export default function PayrollCalculationPage({ user }) {
             <tbody className="divide-y divide-slate-100 bg-white">
               {slipLoading ? (
                 <tr>
-                  <td colSpan={9} className="px-3 py-6 text-center text-slate-500">
+                  <td colSpan={10} className="px-3 py-6 text-center text-slate-500">
                     Cargando…
                   </td>
                 </tr>
               ) : slips.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-3 py-6 text-center text-slate-500">
+                  <td colSpan={10} className="px-3 py-6 text-center text-slate-500">
                     No hay planillas.
                   </td>
                 </tr>
@@ -398,6 +399,7 @@ export default function PayrollCalculationPage({ user }) {
                       </td>
                       <td className="px-3 py-2">{fmtMoney(r.gross_total)}</td>
                       <td className="px-3 py-2">{fmtMoney(r.employer_ccss_amount)}</td>
+                      <td className="px-3 py-2">{fmtMoney(r.employer_other_amount)}</td>
                       <td className="px-3 py-2">{fmtMoney(r.employee_ccss_amount)}</td>
                       <td className="px-3 py-2">{fmtMoney(r.aguinaldo_provision)}</td>
                       <td className="px-3 py-2 font-medium">{fmtMoney(r.total_employer_liability)}</td>
@@ -444,7 +446,7 @@ export default function PayrollCalculationPage({ user }) {
                     </tr>
                     {expandedId === r.id && Array.isArray(r.lot_allocations) && r.lot_allocations.length > 0 ? (
                       <tr className="bg-slate-50">
-                        <td colSpan={9} className="px-4 py-2">
+                        <td colSpan={10} className="px-4 py-2">
                           <p className="mb-1 text-xs font-semibold text-slate-700">Prorrateo por lote</p>
                           <ul className="text-xs text-slate-600">
                             {r.lot_allocations.map((a) => (

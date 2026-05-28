@@ -299,7 +299,7 @@ export default function ApplicationsPage({ user }) {
     }
     const cu = Number(mixForm.containers_used);
     if (!Number.isFinite(cu) || cu <= 0) {
-      setMixFormError('Indique cuántos envases o bombas se usaron (> 0).');
+      setMixFormError('Indique cuántos tanques o bombas se usaron (> 0).');
       return;
     }
     const rawMixItems = mixForm.items.filter((x) => x.item_id && x.dose_qty);
@@ -848,7 +848,7 @@ export default function ApplicationsPage({ user }) {
                   />
                 </label>
                 <label className="block text-xs font-semibold text-slate-700">
-                  Envases / bombas usados *
+                  Tanques / bombas usados *
                   <input
                     type="number"
                     step="any"
@@ -1020,7 +1020,7 @@ export default function ApplicationsPage({ user }) {
                     {mixDetail.scope_name || mixDetail.lot_name || mixDetail.farm_name || '—'}
                   </p>
                   <p>
-                    <span className="font-semibold text-slate-900">Envases / bombas:</span>{' '}
+                    <span className="font-semibold text-slate-900">Tanques / bombas:</span>{' '}
                     {fmtQty(mixDetail.containers_used)}
                   </p>
                   <p>

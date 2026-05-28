@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   createPayrollNominaContributionRule,
   deactivatePayrollNominaContributionRule,
@@ -8,7 +8,8 @@ import {
 const DEFAULT_FORM = {
   valid_from: '',
   valid_to: '',
-  employer_pct_of_gross: '',
+  employer_ccss_pct_of_gross: '',
+  employer_other_pct_of_gross: '0',
   employee_pct_of_gross: '',
   notes: '',
 };
@@ -26,6 +27,14 @@ function fmtDate(d) {
 function fmtEndDate(d) {
   if (d == null || d === '') return 'Vigente (sin fecha fin)';
   return String(d).slice(0, 10);
+}
+
+function readCcssPct(row) {
+  return row.employer_ccss_pct_of_gross ?? row.employer_pct_of_gross;
+}
+
+function readOtherPct(row) {
+  return row.employer_other_pct_of_gross ?? 0;
 }
 
 export default function PayrollNominaPaymentDetailsPage({ user }) {
@@ -73,20 +82,37 @@ export default function PayrollNominaPaymentDetailsPage({ user }) {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
+  function validatePct(value, { required, label }) {
+    if (value === '' || value == null) {
+      if (!required) return null;
+      return `Indique ${label}.`;
+    }
+    const n = Number(value);
+    if (!Number.isFinite(n) || n < 0 || n > 100) {
+      return `${label} debe ser un porcentaje entre 0 y 100.`;
+    }
+    return null;
+  }
+
   function validateForm() {
     if (!form.valid_from) return 'Indique la fecha de inicio.';
     if (form.valid_to && form.valid_from > form.valid_to) {
       return 'La fecha de inicio no puede ser posterior a la fecha de finalización.';
     }
-    const emp = Number(form.employer_pct_of_gross);
-    const epl = Number(form.employee_pct_of_gross);
-    if (!Number.isFinite(emp) || emp < 0 || emp > 100) {
-      return 'El aporte del patrono debe ser un porcentaje entre 0 y 100.';
-    }
-    if (!Number.isFinite(epl) || epl < 0 || epl > 100) {
-      return 'El aporte del trabajador debe ser un porcentaje entre 0 y 100.';
-    }
-    return null;
+    return (
+      validatePct(form.employer_ccss_pct_of_gross, {
+        required: true,
+        label: 'Patrono CCSS',
+      }) ||
+      validatePct(form.employer_other_pct_of_gross, {
+        required: false,
+        label: 'Patrono otros pagos',
+      }) ||
+      validatePct(form.employee_pct_of_gross, {
+        required: true,
+        label: 'Trabajador CCSS',
+      })
+    );
   }
 
   async function handleSubmit(e) {
@@ -103,7 +129,8 @@ export default function PayrollNominaPaymentDetailsPage({ user }) {
       await createPayrollNominaContributionRule({
         valid_from: form.valid_from,
         valid_to: form.valid_to?.trim() ? form.valid_to : null,
-        employer_pct_of_gross: Number(form.employer_pct_of_gross),
+        employer_ccss_pct_of_gross: Number(form.employer_ccss_pct_of_gross),
+        employer_other_pct_of_gross: Number(form.employer_other_pct_of_gross || 0),
         employee_pct_of_gross: Number(form.employee_pct_of_gross),
         notes: form.notes.trim() || null,
       });
@@ -137,11 +164,10 @@ export default function PayrollNominaPaymentDetailsPage({ user }) {
         <div>
           <h3 className="text-base font-semibold text-lime-800">Detalles de pagos de nómina</h3>
           <p className="mt-1 max-w-3xl text-sm text-slate-600">
-            Reglas por <strong>periodo</strong> (fechas inclusive): porcentaje del patrono y del trabajador sobre el{' '}
-            <strong>salario bruto</strong>. Las reglas no se editan para no alterar el historial; puede crear una nueva
-            o <strong>inactivar</strong> la anterior. No puede haber periodos activos traslapados: inactive la regla
-            vigente si necesita otra que empiece antes. La <strong>fecha de fin</strong> puede dejarse vacía para que la
-            regla siga vigente hasta que la inactive.
+            Reglas por <strong>periodo</strong> (fechas inclusive): porcentajes sobre el{' '}
+            <strong>salario bruto</strong> para CCSS patrono, otros cargos del patrono (INS, etc.) y CCSS del
+            trabajador. Las reglas no se editan para no alterar el historial; puede crear una nueva o{' '}
+            <strong>inactivar</strong> la anterior. No puede haber periodos activos traslapados.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -177,8 +203,9 @@ export default function PayrollNominaPaymentDetailsPage({ user }) {
             <tr>
               <th className="px-3 py-2">Inicio</th>
               <th className="px-3 py-2">Fin</th>
-              <th className="px-3 py-2">Patrono (% bruto)</th>
-              <th className="px-3 py-2">Trabajador (% bruto)</th>
+              <th className="px-3 py-2">Patrono CCSS</th>
+              <th className="px-3 py-2">Patrono otros</th>
+              <th className="px-3 py-2">Trabajador CCSS</th>
               <th className="px-3 py-2">Notas</th>
               <th className="px-3 py-2">Estado</th>
               <th className="px-3 py-2 text-right">Acciones</th>
@@ -187,13 +214,13 @@ export default function PayrollNominaPaymentDetailsPage({ user }) {
           <tbody className="divide-y divide-slate-100 bg-white">
             {loading ? (
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-center text-slate-500">
+                <td colSpan={8} className="px-3 py-6 text-center text-slate-500">
                   Cargando…
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-center text-slate-500">
+                <td colSpan={8} className="px-3 py-6 text-center text-slate-500">
                   No hay reglas. Cree la primera para los periodos de planilla.
                 </td>
               </tr>
@@ -202,7 +229,8 @@ export default function PayrollNominaPaymentDetailsPage({ user }) {
                 <tr key={r.id} className="hover:bg-slate-50/80">
                   <td className="px-3 py-2 font-medium text-slate-800">{fmtDate(r.valid_from)}</td>
                   <td className="px-3 py-2 text-slate-700">{fmtEndDate(r.valid_to)}</td>
-                  <td className="px-3 py-2">{fmtPct(r.employer_pct_of_gross)}</td>
+                  <td className="px-3 py-2">{fmtPct(readCcssPct(r))}</td>
+                  <td className="px-3 py-2">{fmtPct(readOtherPct(r))}</td>
                   <td className="px-3 py-2">{fmtPct(r.employee_pct_of_gross)}</td>
                   <td className="max-w-xs truncate px-3 py-2 text-slate-600" title={r.notes || ''}>
                     {r.notes || '—'}
@@ -253,8 +281,8 @@ export default function PayrollNominaPaymentDetailsPage({ user }) {
               </button>
             </div>
             <p className="mb-3 text-xs leading-relaxed text-slate-600">
-              Los porcentajes se aplican sobre el <strong>salario bruto</strong>. Esta fila no podrá editarse después;
-              solo inactivarse.
+              Los porcentajes se aplican sobre el <strong>salario bruto</strong>. El costo patrono en planilla suma
+              bruto + CCSS patrono + otros patrono. Esta fila no podrá editarse después; solo inactivarse.
             </p>
             <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-3">
               <label className="text-sm">
@@ -281,21 +309,38 @@ export default function PayrollNominaPaymentDetailsPage({ user }) {
                 </span>
               </label>
               <label className="text-sm">
-                <span className="mb-1 block font-medium">Aporte patrono (% del bruto) *</span>
+                <span className="mb-1 block font-medium">Patrono CCSS (% del bruto) *</span>
                 <input
                   type="number"
                   step="0.0001"
                   min="0"
                   max="100"
-                  value={form.employer_pct_of_gross}
-                  onChange={(e) => onChange('employer_pct_of_gross', e.target.value)}
+                  value={form.employer_ccss_pct_of_gross}
+                  onChange={(e) => onChange('employer_ccss_pct_of_gross', e.target.value)}
                   disabled={saving}
-                  placeholder="ej. 26.83"
+                  placeholder="ej. 26.17"
                   className="w-full rounded-lg border border-slate-300 px-3 py-2"
                 />
               </label>
               <label className="text-sm">
-                <span className="mb-1 block font-medium">Aporte trabajador (% del bruto) *</span>
+                <span className="mb-1 block font-medium">Patrono otros pagos (% del bruto)</span>
+                <input
+                  type="number"
+                  step="0.0001"
+                  min="0"
+                  max="100"
+                  value={form.employer_other_pct_of_gross}
+                  onChange={(e) => onChange('employer_other_pct_of_gross', e.target.value)}
+                  disabled={saving}
+                  placeholder="ej. 2.27 (INS, etc.)"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                />
+                <span className="mt-1 block text-xs text-slate-500">
+                  Cargos del patrono distintos de CCSS. Use 0 si no aplica.
+                </span>
+              </label>
+              <label className="text-sm">
+                <span className="mb-1 block font-medium">Trabajador CCSS (% del bruto) *</span>
                 <input
                   type="number"
                   step="0.0001"
@@ -304,7 +349,7 @@ export default function PayrollNominaPaymentDetailsPage({ user }) {
                   value={form.employee_pct_of_gross}
                   onChange={(e) => onChange('employee_pct_of_gross', e.target.value)}
                   disabled={saving}
-                  placeholder="ej. 10.83"
+                  placeholder="ej. 10.67"
                   className="w-full rounded-lg border border-slate-300 px-3 py-2"
                 />
               </label>

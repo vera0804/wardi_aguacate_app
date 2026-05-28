@@ -65,7 +65,12 @@ async function getWorkerForClient({ db, workerId, clientId }) {
 
 async function findNominaRuleForDate({ db, clientId, asOfDate }) {
   const res = await db.query(
-    `SELECT id, employer_pct_of_gross, employee_pct_of_gross, valid_from, valid_to
+    `SELECT id,
+            employer_ccss_pct_of_gross,
+            employer_other_pct_of_gross,
+            employee_pct_of_gross,
+            valid_from,
+            valid_to
      FROM payroll_nomina_contribution_rules
      WHERE client_id = $1
        AND is_active = true
@@ -197,8 +202,10 @@ async function computePayrollSlipDerivedValues({
 }) {
   let grossTotal = 0;
   let employerCcss = 0;
+  let employerOther = 0;
   let employeeCcss = 0;
-  let employerPctSnap = null;
+  let employerCcssPctSnap = null;
+  let employerOtherPctSnap = null;
   let employeePctSnap = null;
   let nominaRuleId = null;
 
@@ -212,7 +219,8 @@ async function computePayrollSlipDerivedValues({
       throw err;
     }
     nominaRuleId = rule.id;
-    employerPctSnap = Number(rule.employer_pct_of_gross);
+    employerCcssPctSnap = Number(rule.employer_ccss_pct_of_gross);
+    employerOtherPctSnap = Number(rule.employer_other_pct_of_gross || 0);
     employeePctSnap = Number(rule.employee_pct_of_gross);
   }
 
@@ -224,19 +232,21 @@ async function computePayrollSlipDerivedValues({
     }
     grossTotal = normalizeMoney(monthlyGross, { field: 'monthly_gross' });
     if (declaresCcss) {
-      employerCcss = round2((grossTotal * employerPctSnap) / 100);
+      employerCcss = round2((grossTotal * employerCcssPctSnap) / 100);
+      employerOther = round2((grossTotal * employerOtherPctSnap) / 100);
       employeeCcss = round2((grossTotal * employeePctSnap) / 100);
     }
   } else {
     grossTotal = round2(await sumLaborGross({ db, clientId, workerId, periodFrom: pf, periodTo: pt }));
     if (declaresCcss) {
-      employerCcss = round2((grossTotal * employerPctSnap) / 100);
+      employerCcss = round2((grossTotal * employerCcssPctSnap) / 100);
+      employerOther = round2((grossTotal * employerOtherPctSnap) / 100);
       employeeCcss = round2((grossTotal * employeePctSnap) / 100);
     }
   }
 
   const aguinaldoProvision = receivesAguinaldo ? round2(grossTotal * AGUINALDO_MONTHLY_FRACTION) : 0;
-  const totalEmployerLiability = round2(grossTotal + employerCcss);
+  const totalEmployerLiability = round2(grossTotal + employerCcss + employerOther);
 
   const lotRows = await aggregateLaborByLot({ db, clientId, workerId, periodFrom: pf, periodTo: pt });
   const lotAllocations = buildLotAllocations(totalEmployerLiability, lotRows);
@@ -244,10 +254,12 @@ async function computePayrollSlipDerivedValues({
   return {
     grossTotal,
     employerCcss,
+    employerOther,
     employeeCcss,
     aguinaldoProvision,
     totalEmployerLiability,
-    employerPctSnap,
+    employerCcssPctSnap,
+    employerOtherPctSnap,
     employeePctSnap,
     nominaRuleId,
     lotAllocations,
@@ -461,16 +473,18 @@ async function calculatePayrollSlip({
              declares_ccss = $4,
              gross_total = $5,
              employer_ccss_amount = $6,
-             employee_ccss_amount = $7,
-             aguinaldo_provision = $8,
-             total_employer_liability = $9,
-             employer_pct_snapshot = $10,
-             employee_pct_snapshot = $11,
-             nomina_rule_id = $12,
+             employer_other_amount = $7,
+             employee_ccss_amount = $8,
+             aguinaldo_provision = $9,
+             total_employer_liability = $10,
+             employer_ccss_pct_snapshot = $11,
+             employer_other_pct_snapshot = $12,
+             employee_pct_snapshot = $13,
+             nomina_rule_id = $14,
              updated_at = NOW(),
-             updated_by_user_id = $13
+             updated_by_user_id = $15
          WHERE id = $1
-           AND client_id = $14`,
+           AND client_id = $16`,
         [
           existingSlipId,
           kind,
@@ -478,10 +492,12 @@ async function calculatePayrollSlip({
           !!declaresCcss,
           derived.grossTotal,
           derived.employerCcss,
+          derived.employerOther,
           derived.employeeCcss,
           derived.aguinaldoProvision,
           derived.totalEmployerLiability,
-          derived.employerPctSnap,
+          derived.employerCcssPctSnap,
+          derived.employerOtherPctSnap,
           derived.employeePctSnap,
           derived.nominaRuleId,
           userId,
@@ -494,12 +510,13 @@ async function calculatePayrollSlip({
         `INSERT INTO payroll_slips (
            client_id, worker_id, worker_kind, period_from, period_to,
            receives_aguinaldo, declares_ccss, status,
-           gross_total, employer_ccss_amount, employee_ccss_amount, aguinaldo_provision,
-           total_employer_liability, employer_pct_snapshot, employee_pct_snapshot, nomina_rule_id,
-           created_by_user_id, updated_by_user_id
+           gross_total, employer_ccss_amount, employer_other_amount, employee_ccss_amount,
+           aguinaldo_provision, total_employer_liability,
+           employer_ccss_pct_snapshot, employer_other_pct_snapshot, employee_pct_snapshot,
+           nomina_rule_id, created_by_user_id, updated_by_user_id
          )
          VALUES ($1, $2, $3, $4::date, $5::date, $6, $7, 'calculada',
-                 $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)
+                 $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $18)
          RETURNING id`,
         [
           clientId,
@@ -511,10 +528,12 @@ async function calculatePayrollSlip({
           !!declaresCcss,
           derived.grossTotal,
           derived.employerCcss,
+          derived.employerOther,
           derived.employeeCcss,
           derived.aguinaldoProvision,
           derived.totalEmployerLiability,
-          derived.employerPctSnap,
+          derived.employerCcssPctSnap,
+          derived.employerOtherPctSnap,
           derived.employeePctSnap,
           derived.nominaRuleId,
           userId,
@@ -608,26 +627,30 @@ async function recalculatePayrollSlip({
            declares_ccss = $3,
            gross_total = $4,
            employer_ccss_amount = $5,
-           employee_ccss_amount = $6,
-           aguinaldo_provision = $7,
-           total_employer_liability = $8,
-           employer_pct_snapshot = $9,
-           employee_pct_snapshot = $10,
-           nomina_rule_id = $11,
+           employer_other_amount = $6,
+           employee_ccss_amount = $7,
+           aguinaldo_provision = $8,
+           total_employer_liability = $9,
+           employer_ccss_pct_snapshot = $10,
+           employer_other_pct_snapshot = $11,
+           employee_pct_snapshot = $12,
+           nomina_rule_id = $13,
            updated_at = NOW(),
-           updated_by_user_id = $12
+           updated_by_user_id = $14
        WHERE id = $1
-         AND client_id = $13`,
+         AND client_id = $15`,
       [
         id,
         receivesAguinaldo,
         declaresCcss,
         derived.grossTotal,
         derived.employerCcss,
+        derived.employerOther,
         derived.employeeCcss,
         derived.aguinaldoProvision,
         derived.totalEmployerLiability,
-        derived.employerPctSnap,
+        derived.employerCcssPctSnap,
+        derived.employerOtherPctSnap,
         derived.employeePctSnap,
         derived.nominaRuleId,
         userId,

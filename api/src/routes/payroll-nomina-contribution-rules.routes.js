@@ -28,12 +28,15 @@ router.get('/', async (req, res, next) => {
 
 router.post('/', requireCsrf, requireWritePermission, async (req, res, next) => {
   try {
+    const employerCcssPct =
+      req.body?.employer_ccss_pct_of_gross ?? req.body?.employer_pct_of_gross;
     const row = await service.createNominaContributionRule({
       clientId: req.user.clientId,
       userId: req.user.id,
       validFrom: req.body?.valid_from,
       validTo: req.body?.valid_to,
-      employerPctOfGross: req.body?.employer_pct_of_gross,
+      employerCcssPctOfGross: employerCcssPct,
+      employerOtherPctOfGross: req.body?.employer_other_pct_of_gross,
       employeePctOfGross: req.body?.employee_pct_of_gross,
       notes: req.body?.notes,
     });
