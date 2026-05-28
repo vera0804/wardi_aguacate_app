@@ -520,9 +520,59 @@ function buildDateRange(fromDate, toDate) {
   return out;
 }
 
+function normalizeWorkersList(payload) {
+  if (Array.isArray(payload.workers) && payload.workers.length > 0) {
+    return payload.workers.map((w, index) => {
+      const workerId = normalizeText(w?.worker_id);
+      if (!workerId) {
+        const err = new Error(`workers[${index}].worker_id es obligatorio.`);
+        err.status = 400;
+        throw err;
+      }
+      return {
+        worker_id: workerId,
+        rate_applied:
+          w?.rate_applied !== undefined && w?.rate_applied !== null && w?.rate_applied !== ''
+            ? normalizeRate(w.rate_applied, { required: true })
+            : undefined,
+      };
+    });
+  }
+  const workerId = normalizeText(payload.worker_id);
+  if (!workerId) {
+    const err = new Error('worker_id o workers[] es obligatorio.');
+    err.status = 400;
+    throw err;
+  }
+  return [
+    {
+      worker_id: workerId,
+      rate_applied:
+        payload.rate_applied !== undefined && payload.rate_applied !== null && payload.rate_applied !== ''
+          ? normalizeRate(payload.rate_applied, { required: true })
+          : undefined,
+    },
+  ];
+}
+
+function resolveBulkDateRange(payload) {
+  const workDate = normalizeDate(payload.work_date, { field: 'work_date' });
+  const fromDate = normalizeDate(payload.from_date, { field: 'from_date' });
+  const toDate = normalizeDate(payload.to_date, { field: 'to_date' });
+  if (fromDate && toDate) {
+    return { fromDate, toDate };
+  }
+  if (workDate) {
+    return { fromDate: workDate, toDate: workDate };
+  }
+  const err = new Error('Debes indicar work_date o el rango from_date / to_date.');
+  err.status = 400;
+  throw err;
+}
+
 async function createLaborEntriesBulk({ clientId, userId, payload }) {
-  const fromDate = normalizeDate(payload.from_date, { required: true, field: 'from_date' });
-  const toDate = normalizeDate(payload.to_date, { required: true, field: 'to_date' });
+  const workers = normalizeWorkersList(payload);
+  const { fromDate, toDate } = resolveBulkDateRange(payload);
   const dates = buildDateRange(fromDate, toDate);
   const dailyItems = Array.isArray(payload.daily_items) ? payload.daily_items : null;
 
@@ -544,23 +594,28 @@ async function createLaborEntriesBulk({ clientId, userId, payload }) {
   try {
     await db.query('BEGIN');
     const created = [];
-    for (const date of dates) {
-      const item = itemsByDate?.get(date);
-      const row = await createLaborEntryTx({
-        db,
-        clientId,
-        userId,
-        payload: {
-          ...payload,
-          work_date: date,
-          qty: item ? item.qty : payload.qty,
-          rate_applied:
-            item && item.rate_applied !== undefined
-              ? item.rate_applied
-              : payload.rate_applied,
-        },
-      });
-      created.push(row);
+    for (const worker of workers) {
+      for (const date of dates) {
+        const item = itemsByDate?.get(date);
+        const row = await createLaborEntryTx({
+          db,
+          clientId,
+          userId,
+          payload: {
+            ...payload,
+            worker_id: worker.worker_id,
+            work_date: date,
+            qty: item ? item.qty : payload.qty,
+            rate_applied:
+              worker.rate_applied !== undefined
+                ? worker.rate_applied
+                : item && item.rate_applied !== undefined
+                  ? item.rate_applied
+                  : payload.rate_applied,
+          },
+        });
+        created.push(row);
+      }
     }
     await db.query('COMMIT');
     return created;

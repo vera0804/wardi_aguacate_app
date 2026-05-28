@@ -21,6 +21,8 @@ const DEFAULT_FORM = {
   from_date: '',
   to_date: '',
   is_bulk: false,
+  is_multi_worker: false,
+  worker_entries: [],
   unit: 'jornal',
   qty: '1',
   rate_applied: '',
@@ -80,6 +82,7 @@ export default function LaborEntriesPage({ user }) {
   const [showSummary, setShowSummary] = useState(false);
   const [laborTypeSearch, setLaborTypeSearch] = useState('');
   const [dailyQtyByDate, setDailyQtyByDate] = useState({});
+  const [workerPickId, setWorkerPickId] = useState('');
 
   const readOnly = false;
 
@@ -158,7 +161,55 @@ export default function LaborEntriesPage({ user }) {
     setEditingId(null);
     setDailyQtyByDate({});
     setLaborTypeSearch('');
+    setWorkerPickId('');
   }
+
+  function workerById(workerId) {
+    return meta.workers.find((w) => w.id === workerId);
+  }
+
+  function isFixedWorkerId(workerId) {
+    return workerById(workerId)?.worker_type === 'fijo';
+  }
+
+  function addWorkerEntry(workerId) {
+    if (!workerId) return;
+    if (form.worker_entries.some((e) => e.worker_id === workerId)) {
+      setModalError('Ese trabajador ya está en la lista.');
+      return;
+    }
+    setModalError('');
+    const fixed = isFixedWorkerId(workerId);
+    setForm((prev) => ({
+      ...prev,
+      worker_entries: [
+        ...prev.worker_entries,
+        { worker_id: workerId, rate_applied: fixed ? '0' : '' },
+      ],
+    }));
+    setWorkerPickId('');
+  }
+
+  function removeWorkerEntry(workerId) {
+    setForm((prev) => ({
+      ...prev,
+      worker_entries: prev.worker_entries.filter((e) => e.worker_id !== workerId),
+    }));
+  }
+
+  function updateWorkerEntryRate(workerId, rate) {
+    setForm((prev) => ({
+      ...prev,
+      worker_entries: prev.worker_entries.map((e) =>
+        e.worker_id === workerId ? { ...e, rate_applied: rate } : e
+      ),
+    }));
+  }
+
+  const availableWorkersToAdd = useMemo(() => {
+    const selected = new Set(form.worker_entries.map((e) => e.worker_id));
+    return meta.workers.filter((w) => !selected.has(w.id));
+  }, [meta.workers, form.worker_entries]);
 
   function openCreate() {
     resetForm();
@@ -189,6 +240,8 @@ export default function LaborEntriesPage({ user }) {
         allocation_pct: String(a.allocation_pct),
       })),
       is_bulk: false,
+      is_multi_worker: false,
+      worker_entries: [],
       from_date: dateToday(),
       to_date: dateToday(),
     });
@@ -221,6 +274,18 @@ export default function LaborEntriesPage({ user }) {
       if (field === 'unit' && value === 'jornal') {
         next.qty = '1';
       }
+      if (field === 'is_multi_worker') {
+        if (value) {
+          next.worker_id = '';
+          next.rate_applied = '';
+        } else {
+          next.worker_entries = [];
+        }
+      }
+      if (field === 'worker_id' && value) {
+        next.is_multi_worker = false;
+        next.worker_entries = [];
+      }
       return next;
     });
     if (
@@ -228,9 +293,13 @@ export default function LaborEntriesPage({ user }) {
       field === 'to_date' ||
       field === 'unit' ||
       field === 'qty' ||
-      field === 'is_bulk'
+      field === 'is_bulk' ||
+      field === 'is_multi_worker'
     ) {
       setDailyQtyByDate({});
+    }
+    if (field === 'is_multi_worker' && !value) {
+      setWorkerPickId('');
     }
   }
 
@@ -264,18 +333,41 @@ export default function LaborEntriesPage({ user }) {
   }
 
   function validateForm() {
-    if (!form.worker_id || !form.labor_type_id) {
-      return 'Trabajador y tipo de labor son obligatorios.';
+    if (!form.labor_type_id) {
+      return 'El tipo de labor es obligatorio.';
+    }
+    const isMultiCreate = form.is_multi_worker && !editingId;
+    if (isMultiCreate) {
+      if (!form.worker_entries.length) {
+        return 'Agrega al menos un trabajador.';
+      }
+      for (const entry of form.worker_entries) {
+        if (!entry.worker_id) continue;
+        if (isFixedWorkerId(entry.worker_id)) continue;
+        if (
+          entry.rate_applied === '' ||
+          entry.rate_applied === undefined ||
+          Number(entry.rate_applied) < 0
+        ) {
+          const label = workerById(entry.worker_id)?.display_name || workerLabel(workerById(entry.worker_id) || {});
+          return `Indica la tarifa para ${label || 'cada trabajador'}.`;
+        }
+      }
+    } else if (!form.worker_id) {
+      return 'El trabajador es obligatorio.';
     }
     if (!form.unit) return 'La unidad es obligatoria.';
-    const selWorker = meta.workers.find((w) => w.id === form.worker_id);
-    const fixed = selWorker?.worker_type === 'fijo';
-    if (!fixed) {
-      if (form.rate_applied === '' || form.rate_applied === undefined || Number(form.rate_applied) < 0) {
-        return 'La tarifa aplicada debe ser mayor o igual a 0.';
+    if (!isMultiCreate) {
+      const selWorker = meta.workers.find((w) => w.id === form.worker_id);
+      const fixed = selWorker?.worker_type === 'fijo';
+      if (!fixed) {
+        if (form.rate_applied === '' || form.rate_applied === undefined || Number(form.rate_applied) < 0) {
+          return 'La tarifa aplicada debe ser mayor o igual a 0.';
+        }
       }
     }
     const isBulkCreate = form.is_bulk && !editingId;
+    const isBulkOrMulti = (form.is_bulk || form.is_multi_worker) && !editingId;
     if (!isBulkCreate) {
       if (!form.qty || Number(form.qty) <= 0) {
         return 'La cantidad debe ser mayor que 0.';
@@ -302,7 +394,7 @@ export default function LaborEntriesPage({ user }) {
         }
       }
     }
-    if (form.is_bulk) {
+    if (isBulkOrMulti && form.is_bulk) {
       if (!form.from_date || !form.to_date) return 'Debes indicar rango de fechas.';
       if (form.from_date > form.to_date) return 'Rango de fechas inválido.';
       if (form.unit !== 'jornal') {
@@ -315,30 +407,16 @@ export default function LaborEntriesPage({ user }) {
     return null;
   }
 
-  function toPayload() {
+  function sharedPayloadFields() {
     const payload = {
       cost_scope: form.cost_scope,
       lot_id: form.cost_scope === 'lot' ? form.lot_id : null,
       farm_id: form.cost_scope === 'farm' ? form.farm_id : null,
-      worker_id: form.worker_id,
       labor_type_id: form.labor_type_id,
       unit: form.unit,
       qty: Number(form.qty),
-      rate_applied: isFixedWorker ? 0 : Number(form.rate_applied),
       notes: form.notes.trim() || null,
     };
-
-    if (form.is_bulk) {
-      payload.from_date = form.from_date;
-      payload.to_date = form.to_date;
-      payload.daily_items = bulkDates.map((d) => ({
-        work_date: d,
-        qty: qtyForDate(d),
-      }));
-    } else {
-      payload.work_date = form.work_date;
-    }
-
     if (form.cost_scope === 'farm') {
       const farm = meta.farms.find((f) => f.id === form.farm_id);
       if (farm?.labor_allocation_mode === 'manual') {
@@ -351,6 +429,47 @@ export default function LaborEntriesPage({ user }) {
     return payload;
   }
 
+  function attachDateFields(payload) {
+    if (form.is_bulk) {
+      payload.from_date = form.from_date;
+      payload.to_date = form.to_date;
+      payload.daily_items = bulkDates.map((d) => ({
+        work_date: d,
+        qty: qtyForDate(d),
+      }));
+    } else {
+      payload.work_date = form.work_date;
+      payload.from_date = form.work_date;
+      payload.to_date = form.work_date;
+    }
+    return payload;
+  }
+
+  function toPayload() {
+    const payload = {
+      ...sharedPayloadFields(),
+      worker_id: form.worker_id,
+      rate_applied: isFixedWorker ? 0 : Number(form.rate_applied),
+    };
+    if (form.is_bulk) {
+      attachDateFields(payload);
+    } else {
+      payload.work_date = form.work_date;
+    }
+    return payload;
+  }
+
+  function toMultiWorkerPayload() {
+    const payload = {
+      ...sharedPayloadFields(),
+      workers: form.worker_entries.map((e) => ({
+        worker_id: e.worker_id,
+        rate_applied: isFixedWorkerId(e.worker_id) ? 0 : Number(e.rate_applied),
+      })),
+    };
+    return attachDateFields(payload);
+  }
+
   async function submit(e) {
     e.preventDefault();
     if (readOnly) return;
@@ -361,13 +480,13 @@ export default function LaborEntriesPage({ user }) {
       return;
     }
 
-    const payload = toPayload();
+    const payload = form.is_multi_worker && !editingId ? toMultiWorkerPayload() : toPayload();
     setSaving(true);
     setModalError('');
     try {
       if (editingId) {
         await updateLaborEntry(editingId, payload);
-      } else if (form.is_bulk) {
+      } else if (form.is_multi_worker || form.is_bulk) {
         await createLaborEntriesBulk(payload);
       } else {
         await createLaborEntry(payload);
@@ -441,6 +560,14 @@ export default function LaborEntriesPage({ user }) {
     }
     return Number(specific || 0);
   }
+
+  const multiCreateCount = useMemo(() => {
+    if (!form.is_multi_worker || editingId) return 0;
+    const workers = form.worker_entries.length;
+    if (!workers) return 0;
+    const days = form.is_bulk ? bulkDates.length : 1;
+    return workers * days;
+  }, [form.is_multi_worker, form.worker_entries.length, form.is_bulk, bulkDates.length, editingId]);
 
   return (
     <section className="space-y-4 rounded-2xl border border-white/50 bg-white/90 p-5 text-slate-800 shadow">
@@ -614,13 +741,109 @@ export default function LaborEntriesPage({ user }) {
                 </>
               )}
 
-              <label className="text-sm">
-                <span className="mb-1 block font-medium">Trabajador *</span>
-                <select value={form.worker_id} onChange={(e) => onChange('worker_id', e.target.value)} disabled={saving} className="w-full rounded border border-slate-300 px-3 py-2">
-                  <option value="">Selecciona trabajador</option>
-                  {meta.workers.map((w) => <option key={w.id} value={w.id}>{w.display_name || workerLabel(w)}</option>)}
-                </select>
-              </label>
+              {!editingId ? (
+                <label className="inline-flex items-center gap-2 text-sm lg:col-span-3">
+                  <input
+                    type="checkbox"
+                    checked={form.is_multi_worker}
+                    onChange={(e) => onChange('is_multi_worker', e.target.checked)}
+                    disabled={saving}
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                  Varios trabajadores (misma labor, fecha y alcance; tarifa por persona)
+                </label>
+              ) : null}
+
+              {form.is_multi_worker && !editingId ? (
+                <div className="lg:col-span-3 rounded border border-lime-200 bg-lime-50/60 p-3">
+                  <p className="mb-2 text-sm font-semibold text-lime-900">Trabajadores seleccionados</p>
+                  <div className="mb-3 flex flex-wrap items-end gap-2">
+                    <label className="min-w-[12rem] flex-1 text-sm">
+                      <span className="mb-1 block font-medium">Agregar trabajador</span>
+                      <select
+                        value={workerPickId}
+                        onChange={(e) => setWorkerPickId(e.target.value)}
+                        disabled={saving || availableWorkersToAdd.length === 0}
+                        className="w-full rounded border border-slate-300 px-3 py-2"
+                      >
+                        <option value="">
+                          {availableWorkersToAdd.length ? 'Selecciona trabajador' : 'No hay más trabajadores'}
+                        </option>
+                        {availableWorkersToAdd.map((w) => (
+                          <option key={w.id} value={w.id}>
+                            {w.display_name || workerLabel(w)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => addWorkerEntry(workerPickId)}
+                      disabled={saving || !workerPickId}
+                      className="rounded border border-lime-700 bg-white px-3 py-2 text-sm font-medium text-lime-800 disabled:opacity-50"
+                    >
+                      Agregar
+                    </button>
+                  </div>
+                  {form.worker_entries.length === 0 ? (
+                    <p className="text-sm text-slate-600">Agrega uno o más trabajadores y asigna la tarifa de cada uno.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {form.worker_entries.map((entry) => {
+                        const w = workerById(entry.worker_id);
+                        const fixed = w?.worker_type === 'fijo';
+                        return (
+                          <div
+                            key={entry.worker_id}
+                            className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-200 bg-white px-3 py-2"
+                          >
+                            <span className="text-sm font-medium text-slate-800">
+                              {w?.display_name || workerLabel(w || {})}
+                              {fixed ? (
+                                <span className="ml-2 text-xs font-normal text-slate-500">(fijo)</span>
+                              ) : null}
+                            </span>
+                            <div className="flex flex-wrap items-center gap-2">
+                              {!fixed ? (
+                                <label className="flex items-center gap-2 text-sm">
+                                  <span className="text-slate-600">Tarifa</span>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={entry.rate_applied}
+                                    onChange={(e) => updateWorkerEntryRate(entry.worker_id, e.target.value)}
+                                    disabled={saving}
+                                    className="w-28 rounded border border-slate-300 px-2 py-1"
+                                  />
+                                </label>
+                              ) : (
+                                <span className="text-xs text-slate-500">Tarifa 0 (fijo)</span>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => removeWorkerEntry(entry.worker_id)}
+                                disabled={saving}
+                                className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700"
+                              >
+                                Quitar
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <label className="text-sm">
+                  <span className="mb-1 block font-medium">Trabajador *</span>
+                  <select value={form.worker_id} onChange={(e) => onChange('worker_id', e.target.value)} disabled={saving} className="w-full rounded border border-slate-300 px-3 py-2">
+                    <option value="">Selecciona trabajador</option>
+                    {meta.workers.map((w) => <option key={w.id} value={w.id}>{w.display_name || workerLabel(w)}</option>)}
+                  </select>
+                </label>
+              )}
 
               <label className="text-sm">
                 <span className="mb-1 block font-medium">Tipo de labor *</span>
@@ -667,7 +890,7 @@ export default function LaborEntriesPage({ user }) {
                 </label>
               )}
 
-              {!isFixedWorker ? (
+              {!form.is_multi_worker && !isFixedWorker ? (
                 <label className="text-sm">
                   <span className="mb-1 block font-medium">Tarifa aplicada *</span>
                   <input
@@ -683,11 +906,20 @@ export default function LaborEntriesPage({ user }) {
               ) : null}
 
               {!editingId ? (
-                <label className="inline-flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={form.is_bulk} onChange={(e) => onChange('is_bulk', e.target.checked)} className="h-4 w-4 rounded border-slate-300" />
-                  Carga por rango
+                <label className="inline-flex items-center gap-2 text-sm lg:col-span-3">
+                  <input
+                    type="checkbox"
+                    checked={form.is_bulk}
+                    onChange={(e) => onChange('is_bulk', e.target.checked)}
+                    disabled={saving}
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                  Carga por rango de fechas
+                  {form.is_multi_worker ? ' (aplica a todos los trabajadores seleccionados)' : ''}
                 </label>
-              ) : <div />}
+              ) : (
+                <div />
+              )}
 
               {form.is_bulk && !editingId ? (
                 <>
@@ -784,7 +1016,13 @@ export default function LaborEntriesPage({ user }) {
 
               <div className="lg:col-span-3 flex flex-wrap items-center gap-2">
                 <button type="submit" disabled={saving} className="rounded bg-lime-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
-                  {editingId ? 'Guardar cambios' : form.is_bulk ? 'Crear en bloque' : 'Crear registro'}
+                  {editingId
+                    ? 'Guardar cambios'
+                    : form.is_multi_worker
+                      ? `Crear ${multiCreateCount || form.worker_entries.length} registro(s)`
+                      : form.is_bulk
+                        ? 'Crear en bloque'
+                        : 'Crear registro'}
                 </button>
                 <button type="button" onClick={closeModal} disabled={saving} className="rounded border border-slate-300 bg-white px-4 py-2 text-sm">Cancelar</button>
               </div>
